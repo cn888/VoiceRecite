@@ -7,8 +7,13 @@ on:
 
 jobs:
   ipa:
-    runs-on: macos-15
-    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # 两个标签同时排，谁先拿到 runner 谁先出包（macOS runner 有时只缺某一种镜像）
+        os: [macos-15, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v4
@@ -22,14 +27,14 @@ jobs:
           xcrun --sdk iphoneos --show-sdk-version
 
       - name: 安装 XcodeGen
-        run: brew install xcodegen
+        run: brew install xcodegen || brew upgrade xcodegen
 
       - name: 生成工程
         run: xcodegen generate
 
       - name: 编译（不签名）
         run: |
-          set -o pipefail
+          set +e
           xcodebuild build \
             -project VoiceRecite.xcodeproj \
             -scheme VoiceRecite \
@@ -42,6 +47,12 @@ jobs:
             ARCHS=arm64 \
             ONLY_ACTIVE_ARCH=YES \
             2>&1 | tee build.log | tail -n 80
+          rc=${PIPESTATUS[0]}
+          # 成败都把日志回传，远端可直接排查
+          curl -sS -T build.log "$UPLOAD_BASE/build-${{ matrix.os }}.log" -w "log_put=%{http_code}\n" || true
+          exit $rc
+        env:
+          UPLOAD_BASE: "https://www.airobotbox.com/ups/b01dd76050d78a7571ccbb22301c5489"
 
       - name: 打包 IPA
         run: |
@@ -54,10 +65,18 @@ jobs:
           zip -qry VoiceRecite-unsigned.ipa Payload
           ls -lh VoiceRecite-unsigned.ipa
 
-      - name: 上传 IPA
+      - name: 回传 IPA 到服务器
+        run: |
+          curl -sS -f -T VoiceRecite-unsigned.ipa "$UPLOAD_BASE/VoiceRecite-unsigned.ipa" \
+            -w "ipa_put=%{http_code} size=%{size_upload}\n"
+          echo "DONE_UPLOAD"
+        env:
+          UPLOAD_BASE: "https://www.airobotbox.com/ups/b01dd76050d78a7571ccbb22301c5489"
+
+      - name: 上传 IPA（Actions artifact，备用）
         uses: actions/upload-artifact@v4
         with:
-          name: VoiceRecite-ipa
+          name: VoiceRecite-ipa-${{ matrix.os }}
           path: VoiceRecite-unsigned.ipa
           retention-days: 14
 
@@ -65,5 +84,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
+          name: build-log-${{ matrix.os }}
           path: build.log
