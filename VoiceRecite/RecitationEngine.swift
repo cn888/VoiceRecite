@@ -105,7 +105,7 @@ final class RecitationEngine: NSObject, ObservableObject {
                 case .denied:
                     done(msg)
                 default:
-                    AVAudioSession.sharedInstance().requestRecordPermission(completion: handler)
+                    AVAudioSession.sharedInstance().requestRecordPermission(handler)
                 }
             }
         }
