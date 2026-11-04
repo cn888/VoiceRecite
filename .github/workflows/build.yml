@@ -1,0 +1,69 @@
+name: Build unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 选最新 Xcode
+        run: |
+          ls -d /Applications/Xcode*.app 2>/dev/null || true
+          NEWEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n 1)
+          [ -n "$NEWEST" ] && sudo xcode-select -s "$NEWEST"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成工程
+        run: xcodegen generate
+
+      - name: 编译（不签名）
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project VoiceRecite.xcodeproj \
+            -scheme VoiceRecite \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            2>&1 | tee build.log | tail -n 80
+
+      - name: 打包 IPA
+        run: |
+          APP=$(find build/Build/Products -maxdepth 3 -name '*.app' | head -n 1)
+          test -n "$APP" || { echo "没有产物"; exit 1; }
+          echo "app: $APP"
+          rm -rf Payload VoiceRecite-unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry VoiceRecite-unsigned.ipa Payload
+          ls -lh VoiceRecite-unsigned.ipa
+
+      - name: 上传 IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceRecite-ipa
+          path: VoiceRecite-unsigned.ipa
+          retention-days: 14
+
+      - name: 上传日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
