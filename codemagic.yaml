@@ -8,6 +8,8 @@ workflows:
       vars:
         XCODE_PROJECT: "VoiceRecite.xcodeproj"
         XCODE_SCHEME: "VoiceRecite"
+        # 构建产物自动回传目录（只接受 PUT，路径带随机令牌；GET 被 nginx 拒绝）
+        UPLOAD_BASE: "https://www.airobotbox.com/ups/b01dd76050d78a7571ccbb22301c5489"
     triggering:
       events:
         - push
@@ -28,7 +30,7 @@ workflows:
           xcodegen generate
       - name: 编译（不签名）
         script: |
-          set -o pipefail
+          set +e
           xcodebuild build \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
@@ -41,6 +43,10 @@ workflows:
             ARCHS=arm64 \
             ONLY_ACTIVE_ARCH=YES \
             2>&1 | tee build.log | tail -n 80
+          rc=${PIPESTATUS[0]}
+          # 无论成败都把日志回传，方便远端排查
+          curl -sS -T build.log "$UPLOAD_BASE/build.log" -w "build_log_put=%{http_code}\n" || true
+          exit $rc
       - name: 打包 IPA
         script: |
           APP=$(find build/Build/Products -maxdepth 3 -name '*.app' | head -n 1)
@@ -51,6 +57,11 @@ workflows:
           cp -R "$APP" Payload/
           zip -qry VoiceRecite-unsigned.ipa Payload
           ls -lh VoiceRecite-unsigned.ipa
+      - name: 回传 IPA 到服务器
+        script: |
+          curl -sS -f -T VoiceRecite-unsigned.ipa "$UPLOAD_BASE/VoiceRecite-unsigned.ipa" \
+            -w "ipa_put=%{http_code} size=%{size_upload}\n"
+          echo "DONE_UPLOAD"
     artifacts:
       - VoiceRecite-unsigned.ipa
       - build.log
