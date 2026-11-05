@@ -34,3 +34,7 @@ targets:
         UIUserInterfaceStyle: Light
         NSMicrophoneUsageDescription: 需要录音来判断你是否在大声朗读
         NSSpeechRecognitionUsageDescription: 需要语音识别来判断你是否已经读完
+        CFBundleURLTypes:
+          - CFBundleURLName: com.pnusv.voicerecite
+            CFBundleURLSchemes:
+              - voicerecite
